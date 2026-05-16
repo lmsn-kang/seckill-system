@@ -162,6 +162,30 @@ open http://localhost:16686
    - Redis SET 持久化标记
    - Redis PUBLISH 实时推送到网关
 
+
+## 多模态内容审核模型
+
+`llm-interface` 提供独立的内容审核能力，用于对评论、图片和图文混合内容做风险分类。它与主业务解耦：Go 进程负责 gRPC 接口、批处理和缓存，Python worker 负责模型推理。
+
+技术实现：
+
+- 基座模型：`Qwen2.5-VL-3B-Instruct`，同时支持文本和图像输入。
+- 微调方式：4-bit NF4 量化加 LoRA，训练脚本位于 `llm-interface/train_classifier.py`。
+- 分类结构：取最后有效 token 的 hidden state，接 `2048 -> 512 -> 128 -> 5` 的 MLP 分类头。
+- 分类标签：安全、暴力、色情、广告欺诈、谩骂引战。
+- 推理路径：`llm-interface/worker.py` 默认 `USE_MOCK=1` 运行；要加载真实模型，设置 `USE_MOCK=0`、`MODEL_PATH` 和 `BEST_MODEL_PATH`。
+
+训练入口：
+
+```bash
+python llm-interface/train_classifier.py \
+  --model-path /path/to/Qwen2.5-VL-3B-Instruct \
+  --processed-dir /path/to/processed_data \
+  --checkpoint-dir /path/to/checkpoints
+```
+
+训练产物包含 LoRA 权重和 `classifier_head.pt`。这些文件通常较大，已通过 `.gitignore` 排除，实际部署时通过本地路径或模型仓库挂载。
+
 ## 监控
 
 - **Prometheus**: http://localhost:9091

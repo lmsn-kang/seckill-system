@@ -30,3 +30,9 @@ checkpoints/
 /source.md
 /llm-interface/AGENTS.md
 /llm-interface/INTERVIEW_PREP.md
+data/
+processed_data/
+weights/
+*.pkl
+*.npy
+*.npz
