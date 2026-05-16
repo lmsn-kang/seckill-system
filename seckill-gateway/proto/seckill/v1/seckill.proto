@@ -1,0 +1,46 @@
+// proto/seckill/v1/seckill.proto
+// 网关和业务层各放一份完全相同的文件
+syntax = "proto3";
+package seckill.v1;
+option go_package = "pb/";
+
+// 订单状态枚举
+enum OrderStatus {
+  CREATED   = 0;  // 已创建
+  PENDING   = 1;  // 待支付
+  PAID      = 2;  // 已支付
+  SHIPPED   = 3;  // 已发货
+  COMPLETED = 4;  // 已完成
+  CANCELLED = 5;  // 已取消
+  REFUNDED  = 6;  // 已退款
+}
+
+service SeckillService {
+  // 执行秒杀
+  rpc DoSeckill(SeckillRequest) returns (SeckillResponse);
+  // 查询库存（网关轮询 + 客户端查询共用）
+  rpc GetStock(StockRequest) returns (StockResponse);
+}
+
+message SeckillRequest {
+  string user_id    = 1;
+  string goods_id   = 2;
+}
+
+message SeckillResponse {
+  int32        code        = 1;  // 0=成功 1=售罄 2=重复购买 3=系统错误
+  int64        order_id    = 2;
+  string       msg         = 3;
+  int64        stock       = 4;  // 剩余库存（供网关缓存判断）
+  OrderStatus  order_status = 5; // 订单状态
+}
+
+message StockRequest {
+  string goods_id   = 1;
+}
+
+message StockResponse {
+  string goods_id   = 1;
+  int64  stock      = 2;
+  bool   sold_out   = 3;
+}

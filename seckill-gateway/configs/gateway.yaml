@@ -1,0 +1,45 @@
+server:
+  port: 8080
+  admin_port: 8090
+
+backend:
+  grpc_addr: "localhost:9090"     # 秒杀服务地址（生产用 etcd 发现）
+
+redis:
+  addr: "localhost:6379"
+  pool_size: 100
+
+plugins:
+  blacklist:
+    enabled: true
+    ips: ["192.168.1.100"]
+
+  ratelimit:
+    enabled: true
+    global_rate: 5000             # 全局 5000 QPS
+    global_capacity: 10000        # 突发容量
+    ip_rate: 100                  # 单IP 100 QPS
+    ip_capacity: 200
+
+  auth:
+    enabled: true
+    jwt_secret: "seckill-secret-key-2024"
+    protected_paths: ["/api/seckill"]
+    public_paths: ["/api/stock", "/health", "/metrics"]
+
+  circuitbreaker:
+    enabled: true
+    threshold: 5                  # 连续失败5次熔断
+    timeout_seconds: 10           # 熔断持续10秒
+    max_half_open: 3              # 半开放行3个请求
+
+  seckillguard:
+    enabled: true
+    paths: ["/api/seckill"]
+    local_ttl_seconds: 5          # L1 本地缓存 TTL
+    redis_poll_interval_ms: 500   # 轮询 Redis 的间隔
+    pubsub_channel: "sk:soldout"  # Redis Pub/Sub 售罄通知频道
+
+  metrics:
+    enabled: true
+    path: "/metrics"

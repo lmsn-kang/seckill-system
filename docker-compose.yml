@@ -1,0 +1,147 @@
+# docker-compose.yml （项目根目录）
+version: "3.8"
+
+services:
+  # ─── 基础设施 ───
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: seckill
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports: ["3306:3306"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  etcd:
+    image: bitnami/etcd:3.5
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+    ports: ["2379:2379"]
+
+  kafka:
+    image: bitnami/kafka:3.6
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports: ["9092:9092"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+
+  # ─── 业务层 ───
+  seckill-svc:
+    build:
+      context: ./seckill
+      dockerfile: Dockerfile
+    command: ["/app/seckill"]
+    environment:
+      REDIS_ADDR: redis:6379
+      MYSQL_DSN: root:root123@tcp(mysql:3306)/seckill?parseTime=true&loc=Local&timeout=5s&readTimeout=5s&writeTimeout=5s
+      KAFKA_ADDR: kafka:9092
+      ETCD_ADDR: etcd:2379
+      JAEGER_ENDPOINT: jaeger:4317
+      LISTEN_ADDR: ":9090"
+      ADVERTISE_ADDR: "seckill-svc:9090"
+      SOLDOUT_CHANNEL: "sk:soldout"
+      HTTP_ADDR: ":8080"
+      MODERATION_ADDR: "http://llm-interface:9090"
+    depends_on:
+      redis: {condition: service_started}
+      mysql: {condition: service_healthy}
+      kafka: {condition: service_started}
+      etcd: {condition: service_started}
+      jaeger: {condition: service_started}
+      llm-interface: {condition: service_started}
+    ports: ["9090:9090", "8081:8080"]
+
+  order-svc:
+    build:
+      context: ./seckill
+      dockerfile: Dockerfile
+    command: ["/app/order"]
+    environment:
+      REDIS_ADDR: redis:6379
+      MYSQL_DSN: root:root123@tcp(mysql:3306)/seckill?parseTime=true&loc=Local&timeout=5s&readTimeout=5s&writeTimeout=5s
+      KAFKA_ADDR: kafka:9092
+      JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      redis: {condition: service_started}
+      mysql: {condition: service_healthy}
+      kafka: {condition: service_started}
+      jaeger: {condition: service_started}
+
+  # ─── 网关层 ───
+  gateway:
+    build:
+      context: ./seckill-gateway
+      dockerfile: Dockerfile
+    command: ["/app/gateway"]
+    environment:
+      CONFIG_PATH: /app/configs/gateway.yaml
+      GIN_MODE: release
+      BACKEND_GRPC_ADDR: seckill-svc:9090
+      REDIS_ADDR: redis:6379
+    volumes:
+      - ./seckill-gateway/configs:/app/configs
+    depends_on: [redis, seckill-svc]
+    ports:
+      - "8080:8080"     # 业务端口
+      - "8090:8090"     # 管理端口
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["80:80"]
+    volumes:
+      - ./seckill-gateway/configs/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [gateway]
+
+  # ─── 监控 ───
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9091:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  # ─── 内容审核服务 ───
+  llm-interface-worker:
+    build:
+      context: ./llm-interface
+      dockerfile: Dockerfile.worker
+    environment:
+      WORKER_PORT: "50052"
+      USE_MOCK: "1"
+    ports: ["50052:50052"]
+
+  llm-interface:
+    build:
+      context: ./llm-interface
+      dockerfile: Dockerfile
+    environment:
+      GRPC_PORT: "50051"
+      PYTHON_ADDR: "llm-interface-worker:50052"
+      MONITOR_PORT: "9090"
+      REDIS_ADDR: redis:6379
+    depends_on:
+      redis: {condition: service_started}
+      llm-interface-worker: {condition: service_started}
+    ports: ["50051:50051", "9092:9090"]

@@ -1,0 +1,32 @@
+# Runtime and local config
+.env
+.env.*
+*.log
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Go/build outputs
+bin/
+dist/
+coverage.out
+
+# Model artifacts
+models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+
+# Local notes, drafts and interview material
+/*.md
+!/README.md
+/source.md
+/llm-interface/AGENTS.md
+/llm-interface/INTERVIEW_PREP.md
